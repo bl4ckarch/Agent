@@ -1,14 +1,16 @@
 package main
 
 import (
-    "bufio"
-    "fmt"
-    "os"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"os"
     "os/exec"
-    "strings"
     "time"
+	
 )
-
 type Task struct {
     Type        string `json:"Type"`
     User        string `json:"User"`
