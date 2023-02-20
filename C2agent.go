@@ -24,9 +24,7 @@ func main() {
 	headers := map[string]string{
 		"Content-Type": "application/json",
 		"User-Agent":   "Agent-C2-EX-MACHINA 0.0.1 (Linux) HP-PC",
-		"Api-Key":      "AdminAdminAdminAdminAdminAdminAdminAdminAdminAdmin
-AdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdmin
-AdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdmin",
+		"Api-Key":      "AdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdmin",
 	}
 
 	fmt.Println("Add headers request 1")
