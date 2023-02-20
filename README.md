@@ -7,12 +7,14 @@ Pour configurer l'agent sur vos équipements , veuillez suivre les étapes suiva
 
 Téléchargez le code source de ce dépôt en utilisant la commande git clone ou en téléchargeant un fichier zip.
 
-
-
+```git clone ```
 Configurez l'adresse IP et le port du serveur C2 dans le fichier de configuration.
 
-Exécutez le fichier agent.go pour démarrer l'agent.
+Compiler le fichier C2agent.go 
 
+```go build -o agent.go```
+Exécutez le fichier agent.go pour démarrer l'agent.
+``` ./agent ```
 
 #Utilisation
 
