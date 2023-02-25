@@ -11,9 +11,17 @@ import (
 )
 
 /*
-   cette fonction permet de traiter les taches de type commande
-   elle retourne le stdout, le stderr et le status de la tache
-   elle retourne une erreur si la commande n'a pas pu etre executee
+   processCommandTask traite les tâches de type commande et retourne le stdout, le stderr et le status de la tâche.
+   Elle retourne une erreur si la commande n'a pas pu être exécutée.
+
+   Args:
+   - task: la tâche à traiter, sous forme de dictionnaire avec une clé "Data" contenant la commande à exécuter
+
+   Returns:
+   - stdout: le résultat de la commande exécutée (stdout)
+   - stderr: le résultat d'erreurs générées par la commande (stderr)
+   - exitCode: le code de sortie de la commande
+   - err: une erreur éventuelle rencontrée lors de l'exécution de la commande
 */
 func processCommandTask(task map[string]interface{}) (string, string, int, error) {
 	fmt.Println("startProcess")
@@ -29,9 +37,16 @@ func processCommandTask(task map[string]interface{}) (string, string, int, error
 }
 
 /*
-   cette fonction permet de traiter les taches de type upload
-   elle retourne le stdout, le stderr et le status de la tache
-   elle retourne une erreur si le fichier n'a pas pu etre lu
+   processUploadTask traite les tâches de type "upload" et retourne le contenu du fichier.
+
+   Args:
+   - task: la tâche à traiter, sous forme de dictionnaire avec une clé "Data" contenant le chemin vers le fichier à lire
+
+   Returns:
+   - fileContent: le contenu du fichier lu
+   - stderr: une chaîne vide
+   - exitCode: 0 (pas d'erreur rencontrée)
+   - err: une erreur éventuelle rencontrée lors de la lecture du fichier
 */
 
 func processUploadTask(task map[string]interface{}) (string, string, int, error) {
@@ -44,10 +59,16 @@ func processUploadTask(task map[string]interface{}) (string, string, int, error)
 }
 
 /*
-   cette fonction permet de traiter les taches de type download
-   elle retourne le stdout, le stderr et le status de la tache
-   elle retourne une erreur si le fichier n'a pas pu etre ecrit
+   processDownloadTask traite les tâches de type "download" et écrit le contenu reçu dans un fichier.
 
+   Args:
+   - task: la tâche à traiter, sous forme de dictionnaire avec une clé "Data" contenant le contenu à écrire dans le fichier et une clé "Filename" contenant le nom du fichier
+
+   Returns:
+   - stdout: une chaîne vide
+   - stderr: une chaîne vide
+   - exitCode: 0 (pas d'erreur rencontrée)
+   - err: une erreur éventuelle rencontrée lors de l'écriture dans le fichier
 */
 
 func processDownloadTask(task map[string]interface{}) (string, string, int, error) {
