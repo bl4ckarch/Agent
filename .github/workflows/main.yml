@@ -1,0 +1,28 @@
+name: Discord Notification
+
+on:
+  push:
+  pull_request:
+  issues:
+  issue_comment:
+  pull_request_review:
+  release:
+  repository_dispatch:
+
+jobs:
+  notification:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2.3.4
+    - name: Setup Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.16
+    - name: Install dependencies
+      run: go mod download
+    - name: Build and run
+      run: go run main.go
+      env:
+        DISCORD_TOKEN: ${{ secrets.discord_token }}
+        DISCORD_CHANNEL_ID: ${{ secrets.discord_channel_id }}
